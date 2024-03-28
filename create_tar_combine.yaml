@@ -1,0 +1,310 @@
+---
+- name: create system, applications, and runtime environment on cc
+  hosts: server1
+  become: yes # Run tasks with root privileges
+
+  vars:
+    installer_path: "{{ lookup('env', 'INSTALLER_PATH').split(',') | first }}"
+
+  tasks:
+    - name: Load Global parameters
+      include_vars:
+        file: "{{ item }}"
+      with_items:
+        - "{{ installer_path }}/config.yml"
+
+
+    - name: print cip_base 123
+      debug:
+        var: cip_base_path
+
+    - name: set_fact
+      set_fact:
+        cip_base_path_1: "{{ cip_base_path }}/private_internal"
+
+
+    - name: print cip_base_1
+      debug:
+        var: cip_base_path_1
+
+    - name: print AI_DATA_MOUNT_path
+      debug:
+        var: AI_DATA_MOUNT_path
+
+    - name: Extract "cip" from the path
+      set_fact:
+        cip: "{{ AI_DATA_MOUNT_path.split('/') | last }}"
+
+    - name: Extract directory using dirname
+      set_fact:
+        cip_parent_path: "{{ AI_DATA_MOUNT_path | dirname }}"
+
+    - name: print cip
+      debug:
+        var: cip
+
+
+    - name: Run du -h command and capture output
+      command: "du -h {{ test_path_2 }}"
+      register: du_output
+
+    - name: print du_output
+      debug:
+        var: du_output
+
+
+    - name: create dir list
+      set_fact:
+        my_list: "{{ du_output.stdout_lines | map('regex_replace', '^\\S+\\s+', '') }}"
+
+    - name: display list
+      debug:
+        var: my_list
+
+
+    - name: Run ls -1a command
+      command: "ls -1A "
+      register: ls_output
+      args:
+        chdir: "{{ item }}"
+      with_items: "{{ my_list }}"
+
+
+    - name: display list
+      debug:
+        var: ls_output
+
+
+    - name: Save registered variable to a file using lineinfile
+      lineinfile:
+        path: "{{ installer_path }}/file.txt"
+        create: yes
+        line: "{{ ls_output }}"
+      delegate_to: localhost
+
+
+        #need to check below ls_item_lists should be repalced with json_lists %!###!%#!#%!#&%$(&$#^##
+    - name: Create a json containing dir and list of files
+      set_fact:
+        json_lists: "{{ ls_item_lists | default([]) + [{ 'item': ls_output.results[item].item, 'stdout_lines': [ ls_output.results[item].stdout_lines ] }] }}"
+      with_items: "{{ range(0,  ls_output.results | length ) | list }}"
+
+
+    - name: Create a json containing dir and list of files
+      debug:
+        var: json_lists
+
+
+    #below code for filenam.V2.20230215122535.dat capture this pattern files which is  my pattern1
+    - name: Create a list for pattern
+      set_fact:
+        pattern1: "{{ pattern1 | default([]) + [{ 'dir': ls_output.results[item].item, 'files':  ls_output.results[item].stdout_lines |  reject('search', '[a-zA-Z_]+[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+[.a-zA-Z0-9]+')  | select('search', '\\d{8,}') | reject('search', '^[0-9]+\\.[A-Za-z]+$') }] }}"
+      with_items: "{{ range(0, ls_output.results | length) | list }}"
+
+
+    - name: Display modified list_p
+      debug:
+        var: pattern1
+
+
+    - name: Check if the file exists for python use
+      stat:
+        path: "{{ installer_path }}/pattern1.txt"
+      register: file_stat
+
+    - name: Delete the file if it exists
+      file:
+        path: "{{ installer_path }}/pattern1.txt"
+        state: absent
+      when: file_stat.stat.exists
+
+    - name: Copy modified content to a file
+      copy:
+        content: "{{ pattern1 | to_nice_json }}"
+        dest: "{{ installer_path }}/pattern1.txt"
+      delegate_to: localhost
+      become_user: abinitio
+
+#
+#    # run python script to replace pattern with '?'
+#    - name: Execute Python Script for yyyymmdd{14s} pattern1
+#      command: "python3 pattern1.py {{ installer_path }} pattern1.txt pattern1_file.txt"
+#      args:
+#        chdir: "{{ installer_path }}"
+#      delegate_to: localhost
+#
+#    - name: Slurp the file output.json
+#      slurp:
+#        src: "{{ installer_path }}/pattern1_file.txt"
+#      register: output_json_reg
+#      delegate_to: localhost
+#
+#
+#    - name: Convert binary data to string pattern1_file
+#      set_fact:
+#        pattern1_files: "{{ output_json_reg['content'] | b64decode | from_json  }}"
+#      delegate_to: localhost
+#
+#    - name: Display file pattern with dir pattern1_file
+#      debug:
+#        var: pattern1_files
+#      delegate_to: localhost
+#
+#     #belwo code for file_2024-02-12-12-19-09_4799739838.err capture this pattern files  which is  my pattern2
+    - name: Create a list for pattern
+      set_fact:
+        pattern2: "{{ pattern2 | default([]) + [{ 'dir': ls_output.results[item].item, 'files':  ls_output.results[item].stdout_lines |  select('search', '[a-zA-Z_]+[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+[.a-zA-Z0-9]+') | reject('search', '^[0-9]+\\.[A-Za-z]+$') }] }}"
+      with_items: "{{ range(0, ls_output.results | length) | list }}"
+
+
+    - name: create a combine list p1_p2
+      set_fact:
+        p1_p2: "{{ pattern2 + pattern1 }}"
+
+    - name: Display modified yyyy_mm_dd_pattern
+      debug:
+        var: p1_p2
+        #var: pattern2
+
+    - name: Check if the file exists for python use
+      stat:
+        path: "{{ installer_path }}/pattern2.txt"
+      register: file_stat
+
+    - name: Delete the file if it exists
+      file:
+        path: "{{ installer_path }}/pattern2.txt"
+        state: absent
+      when: file_stat.stat.exists
+
+    - name: Copy modified content to a file
+      copy:
+        content: "{{ p1_p2 | to_nice_json }}"
+        dest: "{{ installer_path }}/pattern2.txt"
+      delegate_to: localhost
+      become_user: abinitio
+
+    # run python script to replace pattern with '?'
+    - name: Execute Python Script for pattern2
+      command: "python3 combine.py {{ installer_path }} pattern2.txt pattern2_file.txt"
+      args:
+        chdir: "{{ installer_path }}"
+      delegate_to: localhost
+
+    - name: Slurp the file
+      slurp:
+        src: "{{ installer_path }}/pattern2_file.txt"
+      register: file_contents
+      delegate_to: localhost
+
+
+    - name: Convert binary data to string
+      set_fact:
+        pattern2_files: "{{ file_contents['content'] | b64decode | from_json  }}"
+
+      delegate_to: localhost
+
+    - name: Display file pattern with dir
+      debug:
+        var: pattern2_files
+      delegate_to: localhost
+
+
+#    - name: Combine with_hyphon_file and without_hyphon_file
+#      set_fact:
+#        pattern_file: "{{ pattern2_files + pattern1_files }}"
+#
+#    - name: Display pattern_file list
+#      debug:
+#        var: pattern_file
+#
+#    - name: Execute ls commands with changed directory
+#      shell: " ls -1  {{ item.1 }} | sort -r | head -2 "
+#      args:
+#        chdir: "{{ item.0.dir }}"
+#      with_subelements:
+#       - "{{ pattern_file }}"
+#       - files
+#      register: pattern_n_files_reg
+#
+#    - name: Display file pattern with dir
+#      debug:
+#       var: pattern_n_files_reg
+#
+#    - name: Transform the structure
+#      set_fact:
+#        pattern_n_files : "{{ pattern_n_files | default([]) + [{'dir': item.invocation.module_args.chdir, 'files': item.stdout_lines | default([])}] }}"
+#      loop: "{{ pattern_n_files_reg.results }}"
+#
+#    - name: Display file 'n' with dir
+#      debug:
+#        var: pattern_n_files
+#    # files which has no pattern
+#    - name: Create a list for no pattern
+#      set_fact:
+#        no_pattern : "{{ no_pattern | default([]) + [{ 'dir': ls_output.results[item].item, 'files':  ls_output.results[item].stdout_lines | reject('search', '[a-zA-Z_]+[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+.[a-zA-Z]+$')  | reject('search', '\\d{8,}') }] }}"
+#      with_items: "{{ range(0, ls_output.results | length) | list }}"
+#
+#    - name: Display for no pattern
+#      debug:
+#        var: no_pattern
+#
+#    - name: Combine  pattern2_files  and  pattern1_files
+#      set_fact:
+#        all_files: "{{ pattern_n_files +  no_pattern}}"
+#
+#    - name: Display for all files
+#      debug:
+#        var: all_files
+#
+#    - name: Create full paths
+#      set_fact:
+#        all_files_path: "{{ all_files_path | default([]) + item.files | map('regex_replace', '^', item.dir + '/') | list | difference(my_list)  }}"
+#      loop: "{{ all_files }}"
+#
+#    - name: Print transformed structure
+#      debug:
+#        var: all_files_path
+#
+#
+#   - name: Create archive using tar
+#      command: "tar -cvf {{ test_path_2 }}/all_files_1.tar {{ all_files_path  | join (' ') }}"
+#      become_user: abinitio
+#
+
+#    - name: Copy all files
+#      copy:
+#        content: "{{ all_files_path | join(',') }}"
+#        dest: "{{ installer_path }}/all_files_jons.txt"
+#      delegate_to: localhost
+#      become_user: abinitio
+#
+#    - name: run empty dir listing command
+#      command: "find {{ test_path_2 }} -type d -empty"
+#      register: find_empty
+#
+#    - name: print debug
+#      debug:
+#        var: find_empty
+#
+#    - name: create a hidden files which has no data
+#      command: mkdir -p {{ item }}
+#      args:
+#        chdir: "{{ test_path_3 }}"
+#      with_items: "{{ find_empty.stdout_lines }}"
+#      register: hidder_reg
+#
+#    - name: print hidder_reg
+#      debug:
+#        var: hidder_reg
+#
+#
+#    - name: Create a list for pattern
+#      set_fact:
+#      #pattern1: "{{ pattern1 | default([]) + [{ 'dir': ls_output.results[item].item, 'files':  ls_output.results[item].stdout_lines |  select('search', '[a-zA-Z_]+[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+.[a-zA-Z]+$')  | select('search', '\\d{8,}') }] }}"
+#        match_found: "{{ ls_output.results[item].stdout_lines | select('search', '[a-zA-Z_]+[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}-[0-9]{2}_[0-9]+.[a-zA-Z]+$') or ls_output.results[item].stdout_lines | select('search', '\\d{8,}') | list }}"
+#      with_items: "{{ range(0, ls_output.results | length) | list }}"
+#
+#    - name: print match_found
+#      debug:
+#        var: match_found   
